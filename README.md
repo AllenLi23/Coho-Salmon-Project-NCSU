@@ -3,7 +3,7 @@
 Statistical analysis of physiological parameters in Coho Salmon. 
 
 ## Overview
-This repository contains the Rmd file and analyses for the Coho Salmon Project. The Rmd file contains:
+This repository contains the Rmd file and analyses for the Coho Salmon Project. The Rmd file contains for both Freshwater and Saltwater Coho Salmon:
 * Data cleaning
 * Normality testing (Shapiro-Wilk)
 * Outlier elimination (Horn's Algorithm)
