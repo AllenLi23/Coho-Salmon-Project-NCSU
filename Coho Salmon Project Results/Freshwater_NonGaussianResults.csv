@@ -1,4 +1,0 @@
-"Variable","N","Minimum","Maximum","Median","RI_lower","RI_upper","CI90_lower_L","CI90_lower_U","CI90_upper_L","CI90_upper_U"
-"Heart Rate (/min)",21,12,48,24,16,44,12,20,32,48
-"iCa (mmol/L)",21,1.22,1.8,1.64,1.28,1.79,1.22,1.59,1.69,1.8
-"#immature RBC/100 mature RBC",21,2,11,4,2,9,2,2,6,11
