@@ -1,4 +1,4 @@
-# Coho Salmon Projec
+# Coho Salmon Project
 
 Statistical analysis of physiological parameters in Coho Salmon. 
 
