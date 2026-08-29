@@ -1,0 +1,907 @@
+---
+title: "Coho Salmon Project"
+author: "Allen Li"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+# Reading in the data
+
+```{r libraries and definitions}
+# List required packages
+packages <- c("readxl", "boot", "tinytex")
+
+# Identify packages that are not installed yet
+new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+
+# Install missing packages
+if (length(new_packages) > 0) {
+  install.packages(new_packages)
+}
+
+# Load all packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Ensure TinyTeX engine is installed for PDF compilation
+if (!tinytex::is_tinytex()) {
+  tinytex::install_tinytex()
+}
+
+# Change these if you want to run on your own machine
+Saltwater <- read_excel("C:\\Users\\allen\\Downloads\\Coho data in excel (Raw).xlsx", sheet = 1)
+Freshwater <- read_excel("C:\\Users\\allen\\Downloads\\Coho data in excel (Raw).xlsx", sheet = 2)
+
+Freshwater$PCV1 <- as.numeric(Freshwater$PCV1)
+Freshwater$PCV2 <- as.numeric(Freshwater$PCV2)
+Saltwater$PCV2 <- as.numeric(Saltwater$PCV2)
+
+Saltwater$PCV_Avg <- rowMeans(Saltwater[, c("PCV1", "PCV2")], na.rm = TRUE)
+Freshwater$PCV_Avg <- rowMeans(Freshwater[, c("PCV1", "PCV2")], na.rm = TRUE)
+
+vars <- c(
+  "Heart Rate (/min)",
+  "Rectal Temp \"C\"",
+  "Right IR (F)",
+  "Left IR (F)",
+  "Dorsal IR (F)",
+  "Weight (kg)",
+  "Length (cm)",
+  "Lac",
+  "HemoCue (g/dl)", 
+  "PCV1", 
+  "PCV2",
+  "TS",
+  "Na (mmol/L)",
+  "K (mmol/L)",
+  "Cl (mmol/L)",
+  "iCa (mmol/L)",
+  "TCO2 (mmol/L)",
+  "Glu (mg/dL)",
+  "Hct (%PCV)",
+  "Hb* (g/dL)",
+  "BUN (mg/dL)", 
+  "Crea (mg/dL)",
+  "WBC estimate K/μl",
+  "Absolute Neutrophils K/μl",
+  "Absolute immature neutrophils K/μl",
+  "Absolute Lymphocytes K/μl",
+  "Absolute Monocytes K/μl",
+  "Absolute Eosinophils K/μl",
+  "Absolute Basophils K/μl",
+  "#immature RBC/100 mature RBC",
+  "PCV_Avg"
+)
+
+# Forcing the columns to be numeric - normally what happens is that when you have NA in your dataset it changes the column to be characters
+Saltwater[vars] <- lapply(Saltwater[vars], function(x) {
+  
+  x <- trimws(x)                 # remove extra spaces
+  x[x %in% c("NA", "***", "")] <- NA
+  
+  as.numeric(x)
+  
+})
+
+Freshwater[vars] <- lapply(Freshwater[vars], function(x) {
+  
+  x <- trimws(x)                 # remove extra spaces
+  x[x %in% c("NA", "***", "")] <- NA
+  
+  as.numeric(x)
+  
+})
+
+```
+
+# Analyzing Saltwater Salmon
+
+Pages 8 - 10
+
+1\. Determine if data is Gaussian/Nongaussian based on Shapiro Wilk\
+2. Remove outliers\
+3. Calculate reference Intervals
+
+If sample size below 20: Do not need to calculate RI.\
+NEED:\
+- Histogram of Data (Including outliers)\
+- Mean (if Gaussian) or Median (if not Gaussian)\
+- Minimum and Maximum Values
+
+## Gaussian? (Shapiro Wilk)
+
+```{r gaussian or not saltwater}
+shapiro_p <- numeric(length(vars))
+n_values <- numeric(length(vars))
+
+names(shapiro_p) <- vars
+names(n_values) <- vars
+
+shapiro_p <- numeric(length(vars))
+shapiro_W <- numeric(length(vars))
+n_values <- numeric(length(vars))
+
+names(shapiro_p) <- vars
+names(shapiro_W) <- vars
+names(n_values) <- vars
+
+for (v in vars) {
+  
+  x <- na.omit(Saltwater[[v]])
+  n_values[v] <- length(x)
+  
+  if (length(x) >= 3 && length(unique(x)) > 1) {
+    
+    test <- shapiro.test(x)
+    shapiro_p[v] <- test$p.value
+    shapiro_W[v] <- test$statistic
+    
+  } else {
+    
+    shapiro_p[v] <- NA
+    shapiro_W[v] <- NA
+    
+  }
+}
+
+Saltwater_Normality <- data.frame(
+  Variable = vars,
+  N = n_values,
+  Shapiro_p_value = shapiro_p,
+  Normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+)
+
+Saltwater_Normality
+```
+
+## Gaussian Data - Removing outliers
+
+Page 8 of the Guidelines for RI from ASVCP (Horn's Algorithm)
+
+Page 9: Eliminate outliers, retest, eliminate again.
+
+Directly from the guidelines: ***NOTE: The RI study summary document should reflect the number of outliers eliminated, the method used to identify them and the final number (n) from which RI are determined.***
+
+```{r saltwater gauss remove outlier}
+normal_vars <- Saltwater_Normality$Variable[
+  !is.na(Saltwater_Normality$Normal) &
+  Saltwater_Normality$Normal == "Yes"
+]
+
+Saltwater_NoOutliers <- Saltwater
+
+outliers_removed_salt <- numeric(length(normal_vars))
+final_nonNA_salt <- numeric(length(normal_vars))
+
+names(outliers_removed_salt) <- normal_vars
+names(final_nonNA_salt) <- normal_vars
+
+for (v in normal_vars) {
+  
+  removed_total <- 0
+  
+  repeat {
+    
+    x <- Saltwater_NoOutliers[[v]]
+    x_noNA <- na.omit(x)
+    
+    Q1 <- quantile(x_noNA, 0.25)
+    Q3 <- quantile(x_noNA, 0.75)
+    IQR_value <- IQR(x_noNA)
+    
+    lower <- Q1 - 1.5 * IQR_value
+    upper <- Q3 + 1.5 * IQR_value
+    
+    outliers <- which(x < lower | x > upper)
+    
+    if (length(outliers) == 0) break
+    
+    removed_total <- removed_total + length(outliers)
+    
+    Saltwater_NoOutliers[[v]][outliers] <- NA
+    
+  }
+  
+  outliers_removed_salt[v] <- removed_total
+  final_nonNA_salt[v] <- sum(!is.na(Saltwater_NoOutliers[[v]]))
+}
+
+Saltwater_results <- data.frame(
+  Variable = normal_vars,
+  Outliers_Removed = outliers_removed_salt,
+  Final_NonNA = final_nonNA_salt
+)
+
+rownames(Saltwater_results) <- NULL
+Saltwater_results
+```
+
+## Mean +- 1.645 \* SD for 20 $\leq$ n $<$ 40 and Gaussian
+
+```{r reference intervals for salt gaussian}
+# qnorm(0.95) Number to multiply the SD by for Gaussian Data
+# Uncomment this install.packages below if you need the package to run
+# install.packages("boot")
+library(boot)
+set.seed(352026)
+
+# Function used by bootstrap
+bootstrap_RI <- function(data, indices) {
+  
+  d <- data[indices]
+  
+  mean_d <- mean(d)
+  sd_d <- sd(d)
+  
+  c(
+    mean_d - 1.645 * sd_d,
+    mean_d + 1.645 * sd_d
+  )
+}
+
+vars_param <- Saltwater_results$Variable[
+  Saltwater_results$Final_NonNA >= 20 &
+  Saltwater_results$Final_NonNA < 40
+]
+
+param_results <- data.frame()
+
+for (v in vars_param) {
+  
+  x <- na.omit(Saltwater_NoOutliers[[v]])
+  
+  n <- length(x)
+  mean_x <- mean(x)
+  sd_x <- sd(x)
+  min_x <- min(x)
+  max_x <- max(x)
+  
+  RI_lower <- mean_x - 1.645 * sd_x
+  RI_upper <- mean_x + 1.645 * sd_x
+  
+  # Bootstrap CI
+  results <- boot(x, statistic = bootstrap_RI, R = 10000)
+  
+  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  
+  param_results <- rbind(
+    param_results,
+    data.frame(
+      Variable = v,
+      N = n,
+      OutliersRemoved = Saltwater_results$Outliers_Removed[Saltwater_results$Variable == v],
+      Minimum = min_x,
+      Maximum = max_x,
+      Mean = mean_x,
+      SD = sd_x,
+      RI_lower = RI_lower,
+      RI_upper = RI_upper,
+      CI90_lower_L = lower_ci[1],
+      CI90_lower_U = lower_ci[2],
+      CI90_upper_L = upper_ci[1],
+      CI90_upper_U = upper_ci[2]
+    )
+  )
+}
+
+rownames(param_results) <- NULL
+param_results
+```
+
+## Finishing off the Gaussian data (n below 20)
+
+Need:\
+- Histogram of data\
+- Mean\
+- Minimum and Maximum values
+
+```{r saltwater gaussian n below 20}
+vars_hist <- Saltwater_results$Variable[
+  Saltwater_results$Final_NonNA < 20
+]
+
+results_summary_salt <- data.frame()
+
+for (v in vars_hist) {
+  
+  x <- na.omit(Saltwater_NoOutliers[[v]])
+  
+  hist(x,
+       main = paste("Histogram of", v, "(Saltwater - Gaussian)"),
+       xlab = v,
+       col = "lightblue",
+       border = "black")
+  cat("\n\\newpage\n")
+  
+  n <- length(x)
+  mean_val <- mean(x)
+  min_val <- min(x)
+  max_val <- max(x)
+  
+  values_sorted <- paste(sort(x), collapse = ", ")
+  
+  results_summary_salt <- rbind(
+    results_summary_salt,
+    data.frame(
+      Variable = v,
+      N = n,
+      OutliersRemoved = Saltwater_results$Outliers_Removed[Saltwater_results$Variable == v],
+      Mean = mean_val,
+      Minimum = min_val,
+      Maximum = max_val,
+      Values = values_sorted
+    )
+  )
+}
+
+results_summary_salt
+```
+
+## Saltwater not Gaussian 20 $\leq$ n $<$ 40
+
+```{r saltwater not gaussian n between 20 and 40}
+library(boot)
+set.seed(352026)
+
+bootstrap_RI_np <- function(data, indices) {
+  
+  d <- data[indices]
+  
+  c(
+    quantile(d, 0.05),
+    quantile(d, 0.95)
+  )
+}
+
+nonnormal_vars <- Saltwater_Normality$Variable[
+  !is.na(Saltwater_Normality$Normal) &
+  Saltwater_Normality$Normal == "No"
+]
+
+vars_np <- nonnormal_vars[
+  sapply(nonnormal_vars, function(v)
+    sum(!is.na(Saltwater_NoOutliers[[v]])) >= 20 &
+    sum(!is.na(Saltwater_NoOutliers[[v]])) < 40
+  )
+]
+
+nonnormal_results <- data.frame()
+
+for (v in vars_np) {
+  
+  x <- na.omit(Saltwater_NoOutliers[[v]])
+  
+  n <- length(x)
+  min_x <- min(x)
+  max_x <- max(x)
+  med_x <- median(x)
+  
+  RI_lower <- quantile(x, 0.05)
+  RI_upper <- quantile(x, 0.95)
+  
+  # Bootstrap
+  results <- boot(x, statistic = bootstrap_RI_np, R = 10000)
+  
+  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  
+  nonnormal_results <- rbind(
+    nonnormal_results,
+    data.frame(
+      Variable = v,
+      N = n,
+      Minimum = min_x,
+      Maximum = max_x,
+      Median = med_x,
+      RI_lower = RI_lower,
+      RI_upper = RI_upper,
+      CI90_lower_L = lower_ci[1],
+      CI90_lower_U = lower_ci[2],
+      CI90_upper_L = upper_ci[1],
+      CI90_upper_U = upper_ci[2]
+    )
+  )
+}
+
+rownames(nonnormal_results) <- NULL
+nonnormal_results
+```
+
+## Saltwater not Gaussian (n below 20)
+
+```{r saltwater not gaussian n below 20}
+nonnormal_vars <- Saltwater_Normality$Variable[
+  !is.na(Saltwater_Normality$Normal) &
+  Saltwater_Normality$Normal == "No"
+]
+
+vars_small_np <- nonnormal_vars[
+  sapply(nonnormal_vars, function(v)
+    sum(!is.na(Saltwater[[v]])) < 20
+  )
+]
+
+results_summary_small_np <- data.frame()
+
+for (v in vars_small_np) {
+  
+  x <- na.omit(Saltwater[[v]])
+  
+
+hist(x,
+     main = paste("Histogram of", v, "\n(Saltwater - Not Gaussian)"),
+     xlab = v,
+     col = "lightblue",
+     border = "black")
+
+  cat("\n\\newpage\n")
+  
+  n <- length(x)
+  median_val <- median(x)
+  min_val <- min(x)
+  max_val <- max(x)
+  
+  values_sorted <- paste(sort(x), collapse = ", ")
+  
+  results_summary_small_np <- rbind(
+    results_summary_small_np,
+    data.frame(
+      Variable = v,
+      N = n,
+      Median = median_val,
+      Minimum = min_val,
+      Maximum = max_val,
+      Values = values_sorted
+    )
+  )
+}
+
+results_summary_small_np
+```
+
+# Saltwater Results
+
+```{r results for saltwater}
+param_results
+results_summary_salt
+nonnormal_results
+results_summary_small_np
+
+# No category
+Saltwater_Normality$Variable[is.na(Saltwater_Normality$Normal)]
+```
+
+# Analyzing Freshwater Salmon
+
+## Gaussian? (Shapiro - Wilk)
+
+```{r freshwater gaussian}
+shapiro_p <- numeric(length(vars))
+shapiro_W <- numeric(length(vars))
+n_values <- numeric(length(vars))
+
+names(shapiro_p) <- vars
+names(shapiro_W) <- vars
+names(n_values) <- vars
+
+for (v in vars) {
+  
+  x <- na.omit(Freshwater[[v]])
+  n_values[v] <- length(x)
+  
+  if (length(x) >= 3 && length(unique(x)) > 1) {
+    
+    test <- shapiro.test(x)
+    shapiro_p[v] <- test$p.value
+    shapiro_W[v] <- test$statistic
+    
+  } else {
+    
+    shapiro_p[v] <- NA
+    shapiro_W[v] <- NA
+    
+  }
+}
+
+Freshwater_Normality <- data.frame(
+  Variable = vars,
+  N = n_values,
+  Shapiro_p_value = shapiro_p,
+  Normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+)
+
+Freshwater_Normality
+```
+
+## Gaussian Data - Removing outliers
+
+```{r freshwater gauss remove outliers}
+normal_vars_fw <- Freshwater_Normality$Variable[
+  !is.na(Freshwater_Normality$Normal) &
+  Freshwater_Normality$Normal == "Yes"
+]
+
+Freshwater_NoOutliers <- Freshwater
+
+outliers_removed_fw <- numeric(length(normal_vars_fw))
+final_nonNA_fw <- numeric(length(normal_vars_fw))
+
+names(outliers_removed_fw) <- normal_vars_fw
+names(final_nonNA_fw) <- normal_vars_fw
+
+for (v in normal_vars_fw) {
+  
+  removed_total <- 0
+  
+  repeat {
+    
+    x <- Freshwater_NoOutliers[[v]]
+    x_noNA <- na.omit(x)
+    
+    Q1 <- quantile(x_noNA, 0.25)
+    Q3 <- quantile(x_noNA, 0.75)
+    IQR_value <- IQR(x_noNA)
+    
+    lower <- Q1 - 1.5 * IQR_value
+    upper <- Q3 + 1.5 * IQR_value
+    
+    outliers <- which(x < lower | x > upper)
+    
+    if (length(outliers) == 0) break
+    
+    removed_total <- removed_total + length(outliers)
+    
+    Freshwater_NoOutliers[[v]][outliers] <- NA
+    
+  }
+  
+  outliers_removed_fw[v] <- removed_total
+  final_nonNA_fw[v] <- sum(!is.na(Freshwater_NoOutliers[[v]]))
+}
+
+Freshwater_results <- data.frame(
+  Variable = normal_vars_fw,
+  Outliers_Removed = outliers_removed_fw,
+  Final_NonNA = final_nonNA_fw
+)
+
+rownames(Freshwater_results) <- NULL
+Freshwater_results
+```
+
+## Mean +- 1.645 \* SD for 20 $\leq$ n $<$ 40 and Gaussian
+
+```{r reference intervals for freshwater gaussian}
+library(boot)
+set.seed(352026)
+
+bootstrap_RI <- function(data, indices) {
+  
+  d <- data[indices]
+  
+  mean_d <- mean(d)
+  sd_d <- sd(d)
+  
+  c(
+    mean_d - 1.645 * sd_d,
+    mean_d + 1.645 * sd_d
+  )
+}
+
+vars_param_fw <- Freshwater_results$Variable[
+  Freshwater_results$Final_NonNA >= 20 &
+  Freshwater_results$Final_NonNA < 40
+]
+
+param_results_fw <- data.frame()
+
+for (v in vars_param_fw) {
+  
+  x <- na.omit(Freshwater_NoOutliers[[v]])
+  
+  n <- length(x)
+  mean_x <- mean(x)
+  sd_x <- sd(x)
+  min_x <- min(x)
+  max_x <- max(x)
+  
+  RI_lower <- mean_x - 1.645 * sd_x
+  RI_upper <- mean_x + 1.645 * sd_x
+  
+  results <- boot(x, statistic = bootstrap_RI, R = 10000)
+  
+  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  
+  param_results_fw <- rbind(
+    param_results_fw,
+    data.frame(
+      Variable = v,
+      N = n,
+      OutliersRemoved = Freshwater_results$Outliers_Removed[Freshwater_results$Variable == v], 
+      Minimum = min_x,
+      Maximum = max_x,
+      Mean = mean_x,
+      SD = sd_x,
+      RI_lower = RI_lower,
+      RI_upper = RI_upper,
+      CI90_lower_L = lower_ci[1],
+      CI90_lower_U = lower_ci[2],
+      CI90_upper_L = upper_ci[1],
+      CI90_upper_U = upper_ci[2]
+    )
+  )
+}
+
+rownames(param_results_fw) <- NULL
+param_results_fw
+```
+
+## Finishing off the Gaussian data (n below 20)
+
+```{r freshwater gaussian n below 20}
+vars_hist_fw <- Freshwater_results$Variable[
+  Freshwater_results$Final_NonNA < 20
+]
+
+results_summary_fw <- data.frame()
+
+for (v in vars_hist_fw) {
+  
+  x <- na.omit(Freshwater_NoOutliers[[v]])
+  
+  hist(x,
+       main = paste("Histogram of", v, "(Freshwater - Gaussian)"),
+       xlab = v,
+       col = "lightblue",
+       border = "black")
+  cat("\n\\newpage\n")
+  
+  n <- length(x)
+  mean_val <- mean(x)
+  min_val <- min(x)
+  max_val <- max(x)
+  
+  values_sorted <- paste(sort(x), collapse = ", ")
+  
+  results_summary_fw <- rbind(
+    results_summary_fw,
+    data.frame(
+      Variable = v,
+      N = n,
+      OutliersRemoved = Freshwater_results$Outliers_Removed[Freshwater_results$Variable == v],
+      Mean = mean_val,
+      Minimum = min_val,
+      Maximum = max_val,
+      Values = values_sorted
+    )
+  )
+}
+
+results_summary_fw
+```
+
+## Freshwater not Gaussian 20 \< n \< 40
+
+```{r freshwater not gaussian n between 20 and 40}
+bootstrap_RI_np <- function(data, indices) {
+  
+  d <- data[indices]
+  
+  c(
+    quantile(d, 0.05),
+    quantile(d, 0.95)
+  )
+}
+
+nonnormal_vars_fw <- Freshwater_Normality$Variable[
+  !is.na(Freshwater_Normality$Normal) &
+  Freshwater_Normality$Normal == "No"
+]
+
+vars_np_fw <- nonnormal_vars_fw[
+  sapply(nonnormal_vars_fw, function(v)
+    sum(!is.na(Freshwater_NoOutliers[[v]])) >= 20 &
+    sum(!is.na(Freshwater_NoOutliers[[v]])) < 40
+  )
+]
+
+nonnormal_results_fw <- data.frame()
+
+for (v in vars_np_fw) {
+  
+  x <- na.omit(Freshwater_NoOutliers[[v]])
+  
+  n <- length(x)
+  min_x <- min(x)
+  max_x <- max(x)
+  med_x <- median(x)
+  
+  RI_lower <- quantile(x, 0.05)
+  RI_upper <- quantile(x, 0.95)
+  
+  results <- boot(x, statistic = bootstrap_RI_np, R = 10000)
+  
+  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  
+  nonnormal_results_fw <- rbind(
+    nonnormal_results_fw,
+    data.frame(
+      Variable = v,
+      N = n,
+      Minimum = min_x,
+      Maximum = max_x,
+      Median = med_x,
+      RI_lower = RI_lower,
+      RI_upper = RI_upper,
+      CI90_lower_L = lower_ci[1],
+      CI90_lower_U = lower_ci[2],
+      CI90_upper_L = upper_ci[1],
+      CI90_upper_U = upper_ci[2]
+    )
+  )
+}
+
+rownames(nonnormal_results_fw) <- NULL
+nonnormal_results_fw
+```
+
+## Freshwater not Gaussian (n below 20)
+
+```{r freshwater not gaussian n below 20}
+vars_small_np_fw <- nonnormal_vars_fw[
+  sapply(nonnormal_vars_fw, function(v)
+    sum(!is.na(Freshwater[[v]])) < 20
+  )
+]
+
+results_summary_small_np_fw <- data.frame()
+
+for (v in vars_small_np_fw) {
+  
+  x <- na.omit(Freshwater[[v]])
+  
+  hist(x,
+       main = paste("Histogram of", v, "(Freshwater - Not Gaussian)"),
+       xlab = v,
+       col = "lightblue",
+       border = "black")
+  
+  cat("\n\\newpage\n")
+  
+  n <- length(x)
+  median_val <- median(x)
+  min_val <- min(x)
+  max_val <- max(x)
+  
+  values_sorted <- paste(sort(x), collapse = ", ")
+  
+  results_summary_small_np_fw <- rbind(
+    results_summary_small_np_fw,
+    data.frame(
+      Variable = v,
+      N = n,
+      Median = median_val,
+      Minimum = min_val,
+      Maximum = max_val,
+      Values = values_sorted
+    )
+  )
+}
+
+results_summary_small_np_fw
+```
+
+# Freshwater Results
+
+```{r results for freshwater}
+param_results_fw
+results_summary_fw
+nonnormal_results_fw
+results_summary_small_np_fw
+
+Freshwater_Normality$Variable[is.na(Freshwater_Normality$Normal)]
+```
+
+# T-Tests and BH Correction
+
+```{r t tests and benjamini hochberg correction}
+p_values <- numeric(length(vars))
+mean_salt <- numeric(length(vars))
+mean_fresh <- numeric(length(vars))
+difference <- numeric(length(vars))
+se_diff <- numeric(length(vars))
+t_ratio <- numeric(length(vars))
+df_val <- numeric(length(vars))
+
+names(p_values) <- vars
+names(mean_salt) <- vars
+names(mean_fresh) <- vars
+names(difference) <- vars
+names(se_diff) <- vars
+names(t_ratio) <- vars
+names(df_val) <- vars
+
+for (v in vars) {
+
+  x <- na.omit(Saltwater[[v]])
+  y <- na.omit(Freshwater[[v]])
+
+  if (length(x) > 2 && length(y) > 2) {
+
+    test <- t.test(x, y)
+
+    p_values[v] <- test$p.value
+    mean_salt[v] <- mean(x)
+    mean_fresh[v] <- mean(y)
+    difference[v] <- mean(x) - mean(y)
+    se_diff[v] <- test$stderr
+    t_ratio[v] <- test$statistic
+    df_val[v] <- test$parameter
+
+  } else {
+
+    p_values[v] <- NA
+    mean_salt[v] <- NA
+    mean_fresh[v] <- NA
+    difference[v] <- NA
+    se_diff[v] <- NA
+    t_ratio[v] <- NA
+    df_val[v] <- NA
+
+  }
+}
+
+q_values <- p.adjust(p_values, method = "BH")
+
+comparison_results <- data.frame(
+  Variable = vars,
+  Mean_Saltwater = round(mean_salt, 3),
+  Mean_Freshwater = round(mean_fresh, 3),
+  Difference = round(difference, 3),
+  SE_Difference = round(se_diff, 3),
+  T_ratio = round(t_ratio, 3),
+  DF = round(df_val, 2),
+  P_value = signif(p_values, 3),
+  Q_value = signif(q_values, 3),
+  Significant = ifelse(q_values < 0.05, "Yes", "No")
+)
+
+comparison_results
+```
+
+# Exporting Results to CSVs
+
+```{r exporting results to csv files, include = FALSE}
+# Change this working directory if you want to run on your own machine
+setwd("C:\\Users\\allen\\OneDrive\\Desktop\\Coho Salmon Project")
+getwd()
+
+# Salt
+write.csv(param_results, "Saltwater_GaussianResults.csv", row.names = FALSE)
+write.csv(results_summary_salt, "Saltwater_SmallGaussianSummary.csv", row.names = FALSE)
+write.csv(nonnormal_results, "Saltwater_NonGaussianResults.csv", row.names = FALSE)
+write.csv(results_summary_small_np, "Saltwater_SmallNonGaussian.csv", row.names = FALSE)
+write.csv(
+  data.frame(Variable = Saltwater_Normality$Variable[is.na(Saltwater_Normality$Normal)]),
+  "Saltwater_NA.csv",
+  row.names = FALSE
+)
+
+# Fresh
+write.csv(param_results_fw, "Freshwater_GaussianResults.csv", row.names = FALSE)
+write.csv(results_summary_fw, "Freshwater_SmallGaussianSummary.csv", row.names = FALSE)
+write.csv(nonnormal_results_fw, "Freshwater_NonGaussianResults.csv", row.names = FALSE)
+write.csv(results_summary_small_np_fw, "Freshwater_SmallNonGaussian.csv", row.names = FALSE)
+write.csv(
+  data.frame(Variable = Freshwater_Normality$Variable[is.na(Freshwater_Normality$Normal)]),
+  "Freshwater_NA.csv",
+  row.names = FALSE
+)
+
+# T-Test and BH Correction
+write.csv(comparison_results, "Comparison_Results.csv", row.names = FALSE)
+```
