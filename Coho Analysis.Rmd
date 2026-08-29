@@ -217,7 +217,7 @@ rownames(Saltwater_results) <- NULL
 Saltwater_results
 ```
 
-## Mean +- 1.645 \* SD for 20 $\leq$ n $<$ 40 and Gaussian
+## Mean +- 1.96 \* SD for 20 $\leq$ n $<$ 40 and Gaussian
 
 ```{r reference intervals for salt gaussian}
 # qnorm(0.95) Number to multiply the SD by for Gaussian Data
@@ -235,8 +235,8 @@ bootstrap_RI <- function(data, indices) {
   sd_d <- sd(d)
   
   c(
-    mean_d - 1.645 * sd_d,
-    mean_d + 1.645 * sd_d
+    mean_d - 1.96 * sd_d,
+    mean_d + 1.96 * sd_d
   )
 }
 
@@ -257,14 +257,14 @@ for (v in vars_param) {
   min_x <- min(x)
   max_x <- max(x)
   
-  RI_lower <- mean_x - 1.645 * sd_x
-  RI_upper <- mean_x + 1.645 * sd_x
+  RI_lower <- mean_x - 1.96 * sd_x
+  RI_upper <- mean_x + 1.96 * sd_x
   
   # Bootstrap CI
   results <- boot(x, statistic = bootstrap_RI, R = 10000)
   
-  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
-  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  lower_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 2)$percent[4:5]
   
   param_results <- rbind(
     param_results,
@@ -350,8 +350,8 @@ bootstrap_RI_np <- function(data, indices) {
   d <- data[indices]
   
   c(
-    quantile(d, 0.05),
-    quantile(d, 0.95)
+    quantile(d, 0.025),
+    quantile(d, 0.975)
   )
 }
 
@@ -378,14 +378,14 @@ for (v in vars_np) {
   max_x <- max(x)
   med_x <- median(x)
   
-  RI_lower <- quantile(x, 0.05)
-  RI_upper <- quantile(x, 0.95)
+  RI_lower <- quantile(x, 0.025)
+  RI_upper <- quantile(x, 0.975)
   
   # Bootstrap
   results <- boot(x, statistic = bootstrap_RI_np, R = 10000)
   
-  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
-  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  lower_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 2)$percent[4:5]
   
   nonnormal_results <- rbind(
     nonnormal_results,
@@ -571,7 +571,7 @@ rownames(Freshwater_results) <- NULL
 Freshwater_results
 ```
 
-## Mean +- 1.645 \* SD for 20 $\leq$ n $<$ 40 and Gaussian
+## Mean +- 1.96 \* SD for 20 $\leq$ n $<$ 40 and Gaussian
 
 ```{r reference intervals for freshwater gaussian}
 library(boot)
@@ -585,8 +585,8 @@ bootstrap_RI <- function(data, indices) {
   sd_d <- sd(d)
   
   c(
-    mean_d - 1.645 * sd_d,
-    mean_d + 1.645 * sd_d
+    mean_d - 1.96 * sd_d,
+    mean_d + 1.96 * sd_d
   )
 }
 
@@ -607,13 +607,13 @@ for (v in vars_param_fw) {
   min_x <- min(x)
   max_x <- max(x)
   
-  RI_lower <- mean_x - 1.645 * sd_x
-  RI_upper <- mean_x + 1.645 * sd_x
+  RI_lower <- mean_x - 1.96 * sd_x
+  RI_upper <- mean_x + 1.96 * sd_x
   
   results <- boot(x, statistic = bootstrap_RI, R = 10000)
   
-  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
-  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  lower_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 2)$percent[4:5]
   
   param_results_fw <- rbind(
     param_results_fw,
@@ -691,8 +691,8 @@ bootstrap_RI_np <- function(data, indices) {
   d <- data[indices]
   
   c(
-    quantile(d, 0.05),
-    quantile(d, 0.95)
+    quantile(d, 0.025),
+    quantile(d, 0.975)
   )
 }
 
@@ -719,13 +719,13 @@ for (v in vars_np_fw) {
   max_x <- max(x)
   med_x <- median(x)
   
-  RI_lower <- quantile(x, 0.05)
-  RI_upper <- quantile(x, 0.95)
+  RI_lower <- quantile(x, 0.025)
+  RI_upper <- quantile(x, 0.975)
   
   results <- boot(x, statistic = bootstrap_RI_np, R = 10000)
   
-  lower_ci <- boot.ci(results, type = "perc", index = 1)$percent[4:5]
-  upper_ci <- boot.ci(results, type = "perc", index = 2)$percent[4:5]
+  lower_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 1)$percent[4:5]
+  upper_ci <- boot.ci(results, conf = 0.90, type = "perc", index = 2)$percent[4:5]
   
   nonnormal_results_fw <- rbind(
     nonnormal_results_fw,
@@ -875,7 +875,7 @@ comparison_results
 
 # Exporting Results to CSVs
 
-```{r exporting results to csv files, include = FALSE}
+```{r exporting results to csv files}
 # Change this working directory if you want to run on your own machine
 setwd("C:\\Users\\allen\\OneDrive\\Desktop\\Coho Salmon Project")
 getwd()
