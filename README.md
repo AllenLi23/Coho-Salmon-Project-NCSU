@@ -18,7 +18,10 @@ To run the code for yourself, please make sure you have the following installed:
 
 ## Contributors & Acknowledgments
 
-Thank you to Gregory Lewbart, Chris Gaudette, and Kelsie Dougherty as the key contributors to this project. 
-
+### Project Leads
+* **Dr. Gregory Lewbart** 
+* **Chris Gaudette** 
+* **Kelsie Dougherty**
+  
 ### Data Source
 Special thanks to the **North Carolina State University College of Veterinary Medicine** for providing the data used in this analysis.
